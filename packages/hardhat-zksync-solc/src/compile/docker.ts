@@ -30,20 +30,29 @@ async function runZksolcContainer(docker: Docker, image: Image, command: string[
 
     let output = Buffer.from('');
     let chunk = Buffer.from('');
+    let chunkNumber = 1;
+    let messageNumber = 1;
+    let totalLength = 0;
     const stream = new Writable({
         write: function (incoming: Buffer, _encoding, next) {
             // Please refer to the 'Stream format' chapter at
             // https://docs.docker.com/engine/api/v1.37/#operation/ContainerAttach
             // to understand the details of this implementation.
+            console.log(`--- Incoming message #${messageNumber++}, length: ${incoming.byteLength}`);
             chunk = Buffer.concat([chunk, incoming]);
             let size = chunk.readUInt32BE(4);
             while (chunk.byteLength >= 8 + size) {
+                console.log(`--- Chunk #${chunkNumber++}, length: ${size}, total length: ${totalLength += size}`);
+                console.log('--- Header: ', new Uint8Array(chunk.slice(0, 8)));
+                console.log('--- Content: ', chunk.slice(8, 8 + size).toString());
                 output = Buffer.concat([output, chunk.slice(8, 8 + size)]);
                 chunk = chunk.slice(8 + size);
                 if (chunk.byteLength >= 8) {
                     size = chunk.readUInt32BE(4);
                 }
             }
+            console.log(`--- Bytes processed   after message #${messageNumber}: ${output.byteLength}`);
+            console.log(`--- Bytes unprocessed after message #${messageNumber}: ${chunk.byteLength}`);
             next();
         },
     });
