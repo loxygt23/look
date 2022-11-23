@@ -1,47 +1,62 @@
 import { existsSync } from 'fs';
 import { HardhatRuntimeEnvironment } from 'hardhat/types';
 import * as path from 'path';
-import * as glob from 'glob';
+import { glob } from 'glob';
+import { promisify } from 'util';
 
 import { ZkSyncDeployPluginError } from './errors';
 
-export function findDeployScripts(hre: HardhatRuntimeEnvironment): string[] {
-    const workDir = hre.config.paths.root;
-    const deployScriptsDir = path.join(workDir, 'deploy');
+const globPromise = promisify(glob);
 
-    if (!existsSync(deployScriptsDir)) {
-        throw new ZkSyncDeployPluginError('No deploy folder was found');
+export async function findAllDeployScripts(deployDirs: string[]): Promise<string[]> {
+    let files: string[] = [];
+
+    for (const dir of deployDirs) {
+        if (!existsSync(dir)) {
+            throw new ZkSyncDeployPluginError(`Deploy folder '${dir}' not found.`);
+        }
+
+        const [tsFilesInDir, jsFilesInDir] = await Promise.all([
+            globPromise(path.join(dir, '**', '*.ts')),
+            globPromise(path.join(dir, '**', '*.js')),
+        ]);
+
+        const filesInDir = tsFilesInDir.concat(jsFilesInDir);
+        filesInDir.sort();
+        files = files.concat(filesInDir);
     }
-
-    const tsFiles = glob.sync(path.join(deployScriptsDir, '**', '*.ts'));
-    const jsFiles = glob.sync(path.join(deployScriptsDir, '**', '*.js'));
-    const files = tsFiles.concat(jsFiles);
-    files.sort();
 
     return files;
 }
 
-export async function callDeployScripts(hre: HardhatRuntimeEnvironment, targetScript: string) {
-    const scripts = findDeployScripts(hre);
+export function findDeployScript(deployDirs: string[], script: string): string {
+    for (const dir of deployDirs) {
+        if (!existsSync(dir)) {
+            continue;
+        }
 
-    if (targetScript == '') {
-        // Target script not specified, run everything.
+        const matchedFiles = glob.sync(path.join(dir, '**', script));
+
+        if (matchedFiles.length) {
+            return matchedFiles[0];
+        }
+    }
+
+    throw new ZkSyncDeployPluginError(
+        `Deploy script '${script}' not found, in deploy folders:\n${deployDirs.join(',\n')}.`
+    );
+}
+
+export async function callDeployScripts(hre: HardhatRuntimeEnvironment, targetScript: string) {
+    const deployDirs = hre.network.deploy;
+
+    if (targetScript === '') {
+        const scripts = await findAllDeployScripts(deployDirs);
         for (const script of scripts) {
             await runScript(hre, script);
         }
     } else {
-        // TODO: Not efficient.
-        let found = false;
-        for (const script of scripts) {
-            if (script.includes(targetScript)) {
-                await runScript(hre, script);
-                found = true;
-                break;
-            }
-        }
-        if (!found) {
-            console.error(`Script ${targetScript} was not found, no scripts were run`);
-        }
+        await runScript(hre, findDeployScript(deployDirs, targetScript));
     }
 }
 
@@ -54,7 +69,7 @@ async function runScript(hre: HardhatRuntimeEnvironment, script: string) {
     }
 
     if (typeof deployFn !== 'function') {
-        throw new ZkSyncDeployPluginError('Deploy function does not exist or exported invalidly');
+        throw new ZkSyncDeployPluginError('Deploy function does not exist or exported invalidly.');
     }
 
     await deployFn(hre);

@@ -1,37 +1,60 @@
-import { HttpNetworkConfig, Network, NetworkConfig } from 'hardhat/types';
+import path from 'path';
+import { HardhatConfig, HardhatRuntimeEnvironment, HttpNetworkConfig, Network, NetworkConfig } from 'hardhat/types';
 import { ZkSyncDeployPluginError } from './errors';
 
 export function isHttpNetworkConfig(networkConfig: NetworkConfig): networkConfig is HttpNetworkConfig {
     return 'url' in networkConfig;
 }
 
-export function networkFromConfig(network: Network) {
-    const networkName = network.name;
-
-    if (networkName === 'hardhat') {
-        return;
-    }
-
-    const networkConfig = network.config;
+export function checkZkSyncNetworkConfig(network: Network) {
+    const { name: networkName, config: networkConfig } = network;
 
     if (!isHttpNetworkConfig(networkConfig)) {
         throw new ZkSyncDeployPluginError(
-            `Invalid zkSync network configuration for '${networkName}' in 'hardhat.config' file. 'url' needs to be provided.`
+            `Invalid zkSync network configuration for '${networkName}'. 'url' needs to be provided.`
         );
     }
 
     if (!networkConfig.zksync) {
         throw new ZkSyncDeployPluginError(
-            `Invalid zkSync network configuration for '${networkName}' in 'hardhat.config' file. 'zksync' flag not set to 'true'.`
+            `Invalid zkSync network configuration for '${networkName}'. 'zksync' flag not set to 'true'.`
         );
     }
 
     if (networkConfig.ethNetwork === undefined) {
         throw new ZkSyncDeployPluginError(
-            `Invalid zkSync network configuration for '${networkName}' in 'hardhat.config' file. 'ethNetwork' (layer 1) is missing.`
+            `Invalid zkSync network configuration for '${networkName}'. 'ethNetwork' (layer 1) is missing.`
         );
     }
+}
+
+export function networkFromConfig(hre: HardhatRuntimeEnvironment, network: Network) {
+    const configDeployPaths = network.config.deploy ?? hre.config.paths.deploy;
+    const configDeployPathsArray = typeof configDeployPaths === 'string' ? [configDeployPaths] : configDeployPaths;
+    network.deploy = normalizePathArray(hre.config, configDeployPathsArray);
+
+    if (network.name === 'hardhat') {
+        return;
+    }
+
+    checkZkSyncNetworkConfig(network);
 
     network.zksync = true;
-    network.ethNetwork = networkConfig.ethNetwork;
+    network.ethNetwork = network.config.ethNetwork as string;
+}
+
+export function normalizePath(config: HardhatConfig, userPath: string | undefined, defaultPath: string): string {
+    if (userPath === undefined) {
+        return path.join(config.paths.root, defaultPath);
+    }
+
+    if (!path.isAbsolute(userPath)) {
+        return path.normalize(path.join(config.paths.root, userPath));
+    }
+
+    return userPath;
+}
+
+export function normalizePathArray(config: HardhatConfig, paths: string[]): string[] {
+    return paths.map((path) => normalizePath(config, path, path));
 }

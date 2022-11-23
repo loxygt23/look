@@ -2,7 +2,7 @@ import { assert } from 'chai';
 import * as path from 'path';
 import { ethers } from 'ethers';
 import { Wallet } from 'zksync-web3';
-import { callDeployScripts, findDeployScripts } from '../src/plugin';
+import { callDeployScripts, findAllDeployScripts, findDeployScript } from '../src/plugin';
 import { TASK_DEPLOY_ZKSYNC } from '../src/task-names';
 import { useEnvironment } from './helpers';
 import { Deployer } from '../src/deployer';
@@ -23,11 +23,18 @@ describe('Plugin tests', async function () {
             assert.equal((artifact as any)._additionalKey, 'some_value', 'Additional key not loaded!');
         });
 
-        it('Should find deploy scripts', async function () {
+        it('Should find all deploy scripts in default deploy folder', async function () {
             const baseDir = this.env.config.paths.root;
-            const files = findDeployScripts(this.env);
+            const files = await findAllDeployScripts(this.env.network.deploy);
 
-            assert.deepEqual(files, [path.join(baseDir, 'deploy', '001_deploy.ts')], 'Incorrect deploy script list');
+            assert.deepEqual(files, [path.join(baseDir, 'deploy', '001_deploy.ts')], 'Incorrect deploy scripts list');
+        });
+
+        it('Should find a specified deploy script', async function () {
+            const baseDir = this.env.config.paths.root;
+            const file = findDeployScript(this.env.network.deploy, '001_deploy.ts');
+
+            assert.deepEqual(file, path.join(baseDir, 'deploy', '001_deploy.ts'), 'Deploy script not found');
         });
 
         it('Should call deploy scripts', async function () {
@@ -72,6 +79,30 @@ describe('Plugin tests', async function () {
                 'http://localhost:3050',
                 'Incorrect default L2 network provider'
             );
+        });
+    });
+
+    describe('multiple-deploy-folders', async function () {
+        useEnvironment('multiple-deploy-folders', ZKSYNC_NETWORK_NAME);
+
+        it('Should find all deploy scripts', async function () {
+            const baseDir = this.env.config.paths.root;
+            const files = await findAllDeployScripts(this.env.network.deploy);
+
+            const expectedFiles = [
+                path.join(baseDir, 'deploy-scripts-1', '001_deploy.ts'),
+                path.join(baseDir, 'deploy-scripts-2', '001_deploy.js'),
+                path.join(baseDir, 'deploy-scripts-2', '002_deploy.ts'),
+            ];
+
+            assert.deepEqual(files, expectedFiles, 'Incorrect deploy scripts list');
+        });
+
+        it('Should find a specified deploy script', async function () {
+            const baseDir = this.env.config.paths.root;
+            const file = findDeployScript(this.env.network.deploy, '001_deploy.js');
+
+            assert.deepEqual(file, path.join(baseDir, 'deploy-scripts-2', '001_deploy.js'), 'Deploy script not found');
         });
     });
 });
