@@ -2,8 +2,8 @@ import { HardhatRuntimeEnvironment, HttpNetworkConfig, Network, NetworksConfig }
 import * as zk from 'zksync-web3';
 import * as ethers from 'ethers';
 
-import { ZkSyncArtifact } from './types';
-import { ZkSyncDeployPluginError } from './errors';
+import { DeployOptions, ZkSyncArtifact } from './types';
+import { WalletNotInitializedError, ZkSyncDeployPluginError } from './errors';
 import { ETH_DEFAULT_NETWORK_RPC_URL } from './constants';
 import { isHttpNetworkConfig } from './utils';
 
@@ -16,21 +16,21 @@ const SUPPORTED_L1_TESTNETS = ['mainnet', 'rinkeby', 'ropsten', 'kovan', 'goerli
  */
 export class Deployer {
     public hre: HardhatRuntimeEnvironment;
-    public ethWallet: ethers.Wallet;
-    public zkWallet: zk.Wallet;
 
-    constructor(hre: HardhatRuntimeEnvironment, zkWallet: zk.Wallet) {
+    public ethWallet: ethers.Wallet | undefined;
+    public zkWallet: zk.Wallet | undefined;
+
+    public ethProvider: ethers.providers.BaseProvider;
+    public zkProvider: zk.Provider;
+
+    constructor(hre: HardhatRuntimeEnvironment) {
         this.hre = hre;
 
         // Initalize two providers: one for the Ethereum RPC (layer 1), and one for the zkSync RPC (layer 2).
         const { ethWeb3Provider, zkWeb3Provider } = this._createProviders(hre.config.networks, hre.network);
 
-        this.zkWallet = zkWallet.connect(zkWeb3Provider).connectToL1(ethWeb3Provider);
-        this.ethWallet = this.zkWallet.ethWallet();
-    }
-
-    static fromEthWallet(hre: HardhatRuntimeEnvironment, ethWallet: ethers.Wallet) {
-        return new Deployer(hre, new zk.Wallet(ethWallet.privateKey));
+        this.ethProvider = ethWeb3Provider;
+        this.zkProvider = zkWeb3Provider;
     }
 
     private _createProviders(
@@ -66,7 +66,7 @@ export class Deployer {
         return { ethWeb3Provider, zkWeb3Provider };
     }
 
-    private _createDefaultEthProvider(): ethers.providers.BaseProvider {
+    private _createDefaultEthProvider(): ethers.providers.JsonRpcProvider {
         return new ethers.providers.JsonRpcProvider(ETH_DEFAULT_NETWORK_RPC_URL);
     }
 
@@ -112,7 +112,7 @@ export class Deployer {
      */
     public async estimateDeployFee(artifact: ZkSyncArtifact, constructorArguments: any[]): Promise<ethers.BigNumber> {
         const gas = await this.estimateDeployGas(artifact, constructorArguments);
-        const gasPrice = await this.zkWallet.provider.getGasPrice();
+        const gasPrice = await (this.zkWallet as zk.Wallet).provider.getGasPrice();
         return gas.mul(gasPrice);
     }
 
@@ -125,6 +125,10 @@ export class Deployer {
      * @returns Calculated amount of gas.
      */
     public async estimateDeployGas(artifact: ZkSyncArtifact, constructorArguments: any[]): Promise<ethers.BigNumber> {
+        if (this.zkWallet === undefined) {
+            throw new WalletNotInitializedError();
+        }
+
         const factoryDeps = await this.extractFactoryDeps(artifact);
         const factory = new zk.ContractFactory(artifact.abi, artifact.bytecode, this.zkWallet);
 
@@ -139,33 +143,28 @@ export class Deployer {
         return await this.zkWallet.provider.estimateGas(deployTx);
     }
 
-    /**
-     * Sends a deploy transaction to the zkSync network.
-     * For now, it will use defaults for the transaction parameters:
-     * - fee amount is requested automatically from the zkSync server.
-     *
-     * @param artifact The previously loaded artifact object.
-     * @param constructorArguments List of arguments to be passed to the contract constructor.
-     * @param overrides Optional object with additional deploy transaction parameters.
-     * @param additionalFactoryDeps Additional contract bytecodes to be added to the factory dependencies list.
-     *
-     * @returns A contract object.
-     */
-    public async deploy(
-        artifact: ZkSyncArtifact,
-        constructorArguments: any[] = [],
-        overrides?: ethers.Overrides,
-        additionalFactoryDeps?: ethers.BytesLike[]
-    ): Promise<zk.Contract> {
+    public async deploy(contractNameOrFullyQualifiedName: string, options: DeployOptions): Promise<zk.Contract> {
+        // TO DO: fetchIfDifferent (deploy only if contract is different)
+        if (options.from !== undefined) {
+            this.setWalletFromPrivatekey(options.from);
+        }
+
+        if (this.zkWallet === undefined) {
+            throw new WalletNotInitializedError();
+        }
+
+        const artifact = options.artifact ?? (await this.loadArtifact(contractNameOrFullyQualifiedName));
+
         const baseDeps = await this.extractFactoryDeps(artifact);
-        const additionalDeps = additionalFactoryDeps
-            ? additionalFactoryDeps.map((val) => ethers.utils.hexlify(val))
+        const additionalDeps = options.additionalFactoryDeps
+            ? options.additionalFactoryDeps.map((val) => ethers.utils.hexlify(val))
             : [];
         const factoryDeps = [...baseDeps, ...additionalDeps];
 
         const factory = new zk.ContractFactory(artifact.abi, artifact.bytecode, this.zkWallet);
-        const { customData, ..._overrides } = overrides ?? {};
+        const { customData, ..._overrides } = options.overrides ?? {};
 
+        const constructorArguments = options.constructorArguments ?? [];
         // Encode and send the deploy transaction providing factory dependencies.
         const contract = await factory.deploy(...constructorArguments, {
             ..._overrides,
@@ -177,6 +176,21 @@ export class Deployer {
         await contract.deployed();
 
         return contract;
+    }
+
+    public setWallet(wallet: zk.Wallet) {
+        this.zkWallet = wallet.connect(this.zkProvider).connectToL1(this.ethProvider);
+        this.ethWallet = this.zkWallet.ethWallet();
+    }
+
+    public setWalletFromEthWallet(ethWallet: ethers.Wallet) {
+        this.zkWallet = new zk.Wallet(ethWallet.privateKey, this.zkProvider, this.ethProvider);
+        this.ethWallet = this.zkWallet.ethWallet();
+    }
+
+    public setWalletFromPrivatekey(privateKey: ethers.utils.BytesLike | ethers.utils.SigningKey) {
+        this.zkWallet = new zk.Wallet(privateKey, this.zkProvider, this.ethProvider);
+        this.ethWallet = this.zkWallet.ethWallet();
     }
 
     /**

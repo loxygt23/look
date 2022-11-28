@@ -1,6 +1,6 @@
 import { HardhatRuntimeEnvironment, TaskArguments } from 'hardhat/types';
-import { callDeployScripts } from './plugin';
+import { deployManager } from '.';
 
-export async function zkSyncDeploy(taskArgs: TaskArguments, hre: HardhatRuntimeEnvironment) {
-    await callDeployScripts(hre, taskArgs.script);
+export async function zkSyncDeploy(taskArgs: TaskArguments, _: HardhatRuntimeEnvironment) {
+    await deployManager.callDeployScripts(taskArgs.script);
 }

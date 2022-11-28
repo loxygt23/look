@@ -1,4 +1,63 @@
 import { Artifact } from 'hardhat/types';
+import * as zk from 'zksync-web3';
+import * as ethers from 'ethers';
+
+export interface DeployOptions {
+    from?: string;
+    artifact?: ZkSyncArtifact;
+    constructorArguments?: any[];
+    overrides?: ethers.Overrides;
+    additionalFactoryDeps?: ethers.BytesLike[];
+}
+
+export type Address = string;
+
+export type ABI = any[];
+
+export interface Deployment {
+    address: Address;
+    abi: ABI;
+}
+
+export interface DeployResult extends Deployment {
+    newlyDeployed: boolean;
+}
+
+export interface DeploymentsExtension {
+    /**
+     * Sends a deploy transaction to the zkSync network.
+     * For now, it will use defaults for the transaction parameters:
+     * - fee amount is requested automatically from the zkSync server.
+     *
+     * @param contractNameOrFullyQualifiedName The name of the contract.
+     *   It can be a contract bare contract name (e.g. "Token") if it's
+     *   unique in your project, or a fully qualified contract name
+     *   (e.g. "contract/token.sol:Token") otherwise.
+     * @param options Deploy options.
+     *
+     * @throws Throws an error if zkSync wallet is not set.
+     *
+     * @returns A contract object.
+     */
+    deploy(contractNameOrFullyQualifiedName: string, options: DeployOptions): Promise<zk.Contract>;
+    setWallet(wallet: zk.Wallet): void;
+    setWalletFromEthWallet(ethWallet: ethers.Wallet): void;
+    setWalletFromPrivatekey(privateKey: ethers.utils.BytesLike | ethers.utils.SigningKey): void;
+    loadArtifact(contractNameOrFullyQualifiedName: string): Promise<ZkSyncArtifact>;
+    estimateDeployFee(artifact: ZkSyncArtifact, constructorArguments: any[]): Promise<ethers.BigNumber>;
+    estimateDeployGas(artifact: ZkSyncArtifact, constructorArguments: any[]): Promise<ethers.BigNumber>;
+    // extractFactoryDeps(artifact: ZkSyncArtifact): Promise<string[]>;
+}
+
+export interface DeployManagerData {
+    privateKeysLoaded: boolean;
+    namedPrivateKeys: { [name: string]: string };
+    chainId?: number;
+}
+
+export interface NamedPrivateKeys {
+    [name: string]: string | number | { [network: string]: null | number | string };
+}
 
 /**
  * Identifier of the Ethereum network (layer 1).

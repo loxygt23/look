@@ -1,10 +1,18 @@
 import 'hardhat/types/config';
 
-import { EthNetwork } from './types';
+import { DeploymentsExtension, EthNetwork, NamedPrivateKeys } from './types';
 
 declare module 'hardhat/types/config' {
+    interface HardhatUserConfig {
+        namedPrivateKeys?: NamedPrivateKeys;
+    }
+
+    interface HardhatConfig {
+        namedPrivateKeys?: NamedPrivateKeys;
+    }
+
     interface HardhatNetworkUserConfig {
-        zksync: boolean;
+        zksync?: boolean;
         ethNetwork?: EthNetwork;
         deploy?: string | string[];
     }
@@ -37,6 +45,10 @@ declare module 'hardhat/types/config' {
 }
 
 declare module 'hardhat/types/runtime' {
+    interface HardhatRuntimeEnvironment {
+        deployments: DeploymentsExtension;
+    }
+
     interface Network {
         zksync: boolean;
         ethNetwork: EthNetwork;

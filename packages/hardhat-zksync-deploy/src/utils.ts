@@ -1,12 +1,13 @@
 import path from 'path';
 import { HardhatConfig, HardhatRuntimeEnvironment, HttpNetworkConfig, Network, NetworkConfig } from 'hardhat/types';
 import { ZkSyncDeployPluginError } from './errors';
+import { NamedPrivateKeys } from './types';
 
 export function isHttpNetworkConfig(networkConfig: NetworkConfig): networkConfig is HttpNetworkConfig {
     return 'url' in networkConfig;
 }
 
-export function checkZkSyncNetworkConfig(network: Network) {
+export function validateZkSyncNetworkConfig(network: Network) {
     const { name: networkName, config: networkConfig } = network;
 
     if (!isHttpNetworkConfig(networkConfig)) {
@@ -37,7 +38,7 @@ export function networkFromConfig(hre: HardhatRuntimeEnvironment, network: Netwo
         return;
     }
 
-    checkZkSyncNetworkConfig(network);
+    validateZkSyncNetworkConfig(network);
 
     network.zksync = true;
     network.ethNetwork = network.config.ethNetwork as string;
@@ -57,4 +58,20 @@ export function normalizePath(config: HardhatConfig, userPath: string | undefine
 
 export function normalizePathArray(config: HardhatConfig, paths: string[]): string[] {
     return paths.map((path) => normalizePath(config, path, path));
+}
+
+export function processPrivateKeys(
+    network: Network,
+    configNamedPrivateKeys: NamedPrivateKeys,
+    chainId: number
+): { namedPrivateKeys: { [name: string]: string } } {
+    return configNamedPrivateKeys ? transformPrivateKeys(configNamedPrivateKeys, chainId) : { namedPrivateKeys: {} };
+}
+
+function transformPrivateKeys(
+    configNamedPrivateKeys: NamedPrivateKeys,
+    chainId: number
+): { namedPrivateKeys: { [name: string]: string } } {
+    // TO DO: Implement
+    return { namedPrivateKeys: {} };
 }
