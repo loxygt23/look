@@ -19,10 +19,16 @@ export class DeployManager {
     private deployPaths: string[];
     private deployer: Deployer;
 
+    private funcByFilePath: {[filename: string]: any};
+    private filePaths: string[];
+
     constructor(private hre: HardhatRuntimeEnvironment, private network: Network) {
         this.hre = hre;
         this.network = network;
         this.deployPaths = network.deploy;
+
+        this.funcByFilePath = {};
+        this.filePaths = [];
 
         this.data = {
             privateKeysLoaded: false,
@@ -81,10 +87,12 @@ export class DeployManager {
         );
     }
 
-    public async callDeployScripts(targetScript: string) {
+    public async callDeployScripts(targetScript: string, tags?: string[] | undefined) {
         if (targetScript === '') {
             const scripts = await this.findAllDeployScripts();
-            for (const script of scripts) {
+            const filePathsByTag = await this.collectTags(scripts, tags);
+            const scriptsToRun = await this.getScriptsToRun(filePathsByTag);
+            for (const script of scriptsToRun) {
                 await this.runScript(script);
             }
         } else {
@@ -93,6 +101,12 @@ export class DeployManager {
     }
 
     private async runScript(script: string) {
+        const deployFn = await this.getDeployFunc(script);
+
+        await deployFn(this.hre);
+    }
+
+    private async getDeployFunc(script: string) {
         delete require.cache[script];
         let deployFn: any = require(script);
 
@@ -104,7 +118,7 @@ export class DeployManager {
             throw new ZkSyncDeployPluginError('Deploy function does not exist or exported invalidly.');
         }
 
-        await deployFn(this.hre);
+        return deployFn;
     }
 
     public async setupPrivateKeys() {
@@ -116,6 +130,81 @@ export class DeployManager {
             this.data.namedPrivateKeys = namedPrivateKeys;
             this.data.privateKeysLoaded = true;
         }
+    }
+
+    public async collectTags(scripts: string[], tags?: string[] | undefined) {
+        const filePathsByTag: {[tag: string]: string[]} = {};
+
+        // Clear state every time collecting tags is executed
+        this.filePaths = [];
+        this.funcByFilePath = [];
+
+        for (const script of scripts) {
+            const filePath = path.resolve(script);
+            const deployFn = await this.getDeployFunc(filePath);
+
+            this.funcByFilePath[filePath] = deployFn;
+
+            let scriptTags = deployFn.tags;
+            if (scriptTags !== undefined) {
+              if (typeof scriptTags === 'string') {
+                scriptTags = [scriptTags];
+              }
+
+              for (const tag of scriptTags) {
+                if (tag.includes(',')) {
+                  throw new ZkSyncDeployPluginError('Tag cannot contains commas.');
+                }
+
+                const tagFilePaths = filePathsByTag[tag] || [];
+                filePathsByTag[tag] = tagFilePaths;
+                tagFilePaths.push(filePath);
+              }
+
+              if (tags !== undefined) {
+                const filteredTags = tags.filter(value => scriptTags.includes(value));
+                if (filteredTags.length) {
+                    this.filePaths.push(filePath);
+                }
+              } else {
+                this.filePaths.push(filePath);
+              }
+            }
+        }
+
+        return filePathsByTag;
+    }
+
+    public async getScriptsToRun(filePathsByTag: {[tag: string]: string[]}): Promise<string[]> {    
+        const filePathRegistered: {[filePath: string]: boolean} = {};
+        const scriptsToRun: string[] = []
+
+        const recurseDependencies = (filePath: string) => {
+            if (filePathRegistered[filePath]) return;
+
+            const deployFn = this.funcByFilePath[filePath];
+            if (deployFn.dependencies) {
+                for (const dependency of deployFn.dependencies) {
+                  const tagFilePaths = filePathsByTag[dependency];
+                  if (tagFilePaths.length) {
+                    for (const tagFilePath of tagFilePaths) {
+                        recurseDependencies(tagFilePath);
+                    }
+                  }
+                }
+            }
+
+            if (!filePathRegistered[filePath]) {
+                scriptsToRun.push(filePath);
+                filePathRegistered[filePath] = true;
+            }
+        }
+        
+        for (const filePath of this.filePaths) {
+            recurseDependencies(filePath);
+        }
+
+        return scriptsToRun;
     }
 
     public async getChainId(): Promise<number> {

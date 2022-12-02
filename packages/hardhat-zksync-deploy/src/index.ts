@@ -1,5 +1,6 @@
 import { extendConfig, extendEnvironment, task } from 'hardhat/config';
 import { HardhatConfig, HardhatRuntimeEnvironment, HardhatUserConfig } from 'hardhat/types';
+import * as types from 'hardhat/internal/core/params/argumentTypes';
 import { lazyObject } from 'hardhat/plugins';
 import { TASK_DEPLOY_ZKSYNC } from './task-names';
 import './type-extensions';
@@ -28,5 +29,11 @@ extendEnvironment((hre: HardhatRuntimeEnvironment) => {
 });
 
 task(TASK_DEPLOY_ZKSYNC, 'Runs the deploy scripts for zkSync network')
-    .addParam('script', 'A certain deploy script to be launched', '')
+    .addOptionalParam(
+        'tags',
+        'specify which deploy script to execute via tags, separated by commas',
+        undefined,
+        types.string
+    )
+    .addParam('script', 'A certain deploy script to be launched', '', types.string)
     .setAction(zkSyncDeploy);

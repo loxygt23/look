@@ -107,4 +107,85 @@ describe('Plugin tests', async function () {
             assert.deepEqual(file, path.join(baseDir, 'deploy-scripts-2', '001_deploy.js'), 'Deploy script not found');
         });
     });
+
+    describe('Deply scripts with tags and dependencies', async function () {
+        useEnvironment('deploy-scripts-with-tags-and-dependencies', ZKSYNC_NETWORK_NAME);
+
+        it('Should collect specified tags', async function () {
+            const deployManager = new DeployManager(this.env, this.env.network);
+            const scripts = await deployManager.findAllDeployScripts();
+            const filePathsByTag = await deployManager.collectTags(scripts);
+
+            assert.deepEqual(Object.keys(filePathsByTag), ['second', 'all', 'third', 'first'], 'Collected tags don\'t match');
+        });
+
+        it('Should match tags with file paths', async function () {
+            const deployManager = new DeployManager(this.env, this.env.network);
+            const baseDir = this.env.config.paths.root;
+            const scripts = await deployManager.findAllDeployScripts();
+            const filePathsByTag = await deployManager.collectTags(scripts);
+
+            const firstTagFilePaths = [path.join(baseDir, 'deploy-scripts', '003_deploy.ts')];
+            const secondTagFilePaths = [path.join(baseDir, 'deploy-scripts', '001_deploy.ts')];
+            const thirdTagFilePaths = [path.join(baseDir, 'deploy-scripts', '002_deploy.js')];
+            const allTagFilePaths = [
+                path.join(baseDir, 'deploy-scripts', '001_deploy.ts'),
+                path.join(baseDir, 'deploy-scripts', '002_deploy.js'),
+                path.join(baseDir, 'deploy-scripts', '003_deploy.ts'),
+            ];
+
+            assert.deepEqual(filePathsByTag['first'], firstTagFilePaths, 'Incorrect file paths list by tag');
+            assert.deepEqual(filePathsByTag['second'], secondTagFilePaths, 'Incorrect file paths list by tag');
+            assert.deepEqual(filePathsByTag['third'], thirdTagFilePaths, 'Incorrect file paths list by tag');
+            assert.deepEqual(filePathsByTag['all'], allTagFilePaths, 'Incorrect file paths list by tag');
+        });
+
+        it('Should filter scripts to run by specified tags, when collecting', async function () {
+            const deployManager = new DeployManager(this.env, this.env.network);
+            const baseDir = this.env.config.paths.root;
+            const scripts = await deployManager.findAllDeployScripts();
+
+            const firstTagFilePaths = [path.join(baseDir, 'deploy-scripts', '003_deploy.ts')];
+            const secondTagFilePaths = [path.join(baseDir, 'deploy-scripts', '001_deploy.ts')];
+            const thirdTagFilePaths = [path.join(baseDir, 'deploy-scripts', '002_deploy.js')];
+            const allTagFilePaths = [
+                path.join(baseDir, 'deploy-scripts', '003_deploy.ts'),
+                path.join(baseDir, 'deploy-scripts', '001_deploy.ts'),
+                path.join(baseDir, 'deploy-scripts', '002_deploy.js'),
+            ];
+
+            let filePathsByTag = await deployManager.collectTags(scripts, ['first']);
+            let scriptsToRun = await deployManager.getScriptsToRun(filePathsByTag);
+            assert.deepEqual(scriptsToRun, firstTagFilePaths, 'List of scripts to run doesn\'t match with filtered file paths');
+
+            filePathsByTag = await deployManager.collectTags(scripts, ['all']);
+            scriptsToRun = await deployManager.getScriptsToRun(filePathsByTag);
+            assert.deepEqual(scriptsToRun, allTagFilePaths, 'List of scripts to run doesn\'t match with filtered file paths');
+
+            filePathsByTag = await deployManager.collectTags(scripts, ['first', 'second']);
+            scriptsToRun = await deployManager.getScriptsToRun(filePathsByTag);
+            assert.deepEqual(scriptsToRun, firstTagFilePaths.concat(secondTagFilePaths), 'List of scripts to run doesn\'t match with filtered file paths');
+
+            filePathsByTag = await deployManager.collectTags(scripts, ['first', 'second', 'third']);
+            scriptsToRun = await deployManager.getScriptsToRun(filePathsByTag);
+            assert.deepEqual(scriptsToRun, firstTagFilePaths.concat(secondTagFilePaths).concat(thirdTagFilePaths), 'List of scripts to run doesn\'t match with filtered file paths');
+        });
+
+        it('Should run scripts in specified order', async function () {
+            const deployManager = new DeployManager(this.env, this.env.network);
+            const baseDir = this.env.config.paths.root;
+            const scripts = await deployManager.findAllDeployScripts();
+
+            const expectedScriptToRunOrder = [
+                path.join(baseDir, 'deploy-scripts', '003_deploy.ts'), // first tag
+                path.join(baseDir, 'deploy-scripts', '001_deploy.ts'), // second tag
+                path.join(baseDir, 'deploy-scripts', '002_deploy.js'), // third tag
+            ];
+
+            let filePathsByTag = await deployManager.collectTags(scripts);
+            let scriptsToRun = await deployManager.getScriptsToRun(filePathsByTag);
+
+            assert.deepEqual(scriptsToRun, expectedScriptToRunOrder, 'Order of executing scripts doesn\'t match');
+        });
+    });
 });
