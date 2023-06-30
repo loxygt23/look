@@ -13,9 +13,8 @@ const config: HardhatUserConfig = {
             zksync: true,
         },
     },
-    // Currently, only Vyper ^0.3.3 is supported.
     vyper: {
-        version: '0.3.3',
+        version: '0.3.9',
     },
 };
 

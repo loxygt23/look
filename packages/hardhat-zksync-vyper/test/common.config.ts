@@ -13,7 +13,7 @@ const config: HardhatUserConfig = {
         },
     },
     vyper: {
-        version: '0.3.3',
+        version: '0.3.9',
     },
     solidity: {
         version: '0.8.17',
